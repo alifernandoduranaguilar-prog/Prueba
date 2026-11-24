@@ -1,5 +1,7 @@
 # Archivos generados al ejecutar o compilar
 estudiantes.txt
+usuarios.txt
 registro.exe
 registro
+prueba_sha*
 *.o
