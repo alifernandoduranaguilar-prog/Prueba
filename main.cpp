@@ -6,6 +6,8 @@
 //
 // Los datos se guardan en estudiantes.txt con el formato:
 //   cedula|nombres|apellidos|edad|correo|carrera|nota
+// y los profesores en profesores.txt:
+//   cedula|nombres|apellidos|especialidad
 //
 // El acceso requiere iniciar sesion. Las cuentas se guardan en usuarios.txt
 // con sal aleatoria y hash SHA-256 iterado. En el primer arranque se crea el
@@ -32,6 +34,7 @@
 using namespace std;
 
 const string ARCHIVO = "estudiantes.txt";
+const string ARCHIVO_PROFESORES = "profesores.txt";
 const string ARCHIVO_USUARIOS = "usuarios.txt";
 const int INTENTOS_MAXIMOS = 3;
 const int ITERACIONES_HASH = 10000;
@@ -52,6 +55,13 @@ struct Usuario {
     string nombre;
     string sal;   // sal aleatoria en hexadecimal (16 bytes)
     string hash;  // hash SHA-256 en hexadecimal
+};
+
+struct Profesor {
+    string cedula;
+    string nombres;
+    string apellidos;
+    string especialidad;
 };
 
 // ---------------------------------------------------------------------------
@@ -594,6 +604,72 @@ vector<Estudiante> cargarArchivo() {
     return lista;
 }
 
+bool guardarProfesores(const vector<Profesor>& lista) {
+    ofstream salida(ARCHIVO_PROFESORES, ios::trunc);
+    if (!salida) {
+        aviso("No se pudo abrir " + ARCHIVO_PROFESORES + " para guardar los datos.");
+        return false;
+    }
+    salida << "# cedula|nombres|apellidos|especialidad\n";
+    for (const Profesor& p : lista) {
+        salida << p.cedula << '|' << p.nombres << '|' << p.apellidos << '|' << p.especialidad
+               << '\n';
+    }
+    if (!salida.good()) {
+        aviso("Ocurrió un error al escribir " + ARCHIVO_PROFESORES + ".");
+        return false;
+    }
+    return true;
+}
+
+vector<Profesor> cargarProfesores() {
+    vector<Profesor> lista;
+    ifstream entrada(ARCHIVO_PROFESORES);
+    if (!entrada) {
+        cout << "  [i] No existe " << ARCHIVO_PROFESORES << "; se inicia un registro vacío.\n";
+        return lista;
+    }
+
+    string linea;
+    int descartadas = 0;
+    while (getline(entrada, linea)) {
+        string limpia = trim(linea);
+        if (limpia.empty() || limpia[0] == '#') continue;
+
+        vector<string> campos = separar(limpia, '|');
+        if (campos.size() != 4) {
+            ++descartadas;
+            continue;
+        }
+
+        Profesor p;
+        p.cedula = trim(campos[0]);
+        p.nombres = trim(campos[1]);
+        p.apellidos = trim(campos[2]);
+        p.especialidad = trim(campos[3]);
+
+        bool valido = esCedulaValida(p.cedula) && esNombreValido(p.nombres) &&
+                      esNombreValido(p.apellidos) && esCarreraValida(p.especialidad);
+        bool repetido = false;
+        for (const Profesor& otro : lista) {
+            if (otro.cedula == p.cedula) repetido = true;
+        }
+        if (!valido || repetido) {
+            ++descartadas;
+            continue;
+        }
+        lista.push_back(p);
+    }
+
+    cout << "  [i] " << lista.size() << " profesor(es) cargado(s) desde " << ARCHIVO_PROFESORES
+         << ".\n";
+    if (descartadas > 0) {
+        aviso("Se descartaron " + to_string(descartadas) + " línea(s) inválida(s) o duplicada(s) de " +
+              ARCHIVO_PROFESORES + ".");
+    }
+    return lista;
+}
+
 // ---------------------------------------------------------------------------
 // Cuentas de acceso
 // ---------------------------------------------------------------------------
@@ -952,6 +1028,223 @@ void mostrarEstadisticas(const vector<Estudiante>& lista) {
 }
 
 // ---------------------------------------------------------------------------
+// Registro de profesores
+// ---------------------------------------------------------------------------
+
+int buscarProfesorPorCedula(const vector<Profesor>& lista, const string& cedula) {
+    for (size_t i = 0; i < lista.size(); ++i) {
+        if (lista[i].cedula == cedula) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+bool pedirCedulaProfesor(const vector<Profesor>& lista, const string& actual,
+                         bool permitirConservar, string& salida) {
+    while (true) {
+        string pista = (permitirConservar && !actual.empty()) ? " [" + actual + "]" : "";
+        string texto;
+        if (!leerLinea("  Cédula (6-10 dígitos)" + pista + ": ", texto)) return false;
+        if (permitirConservar && texto.empty()) {
+            salida = actual;
+            return true;
+        }
+        if (!esCedulaValida(texto)) {
+            aviso("La cédula debe tener entre 6 y 10 dígitos, sin letras ni espacios.");
+            continue;
+        }
+        if (texto != actual && buscarProfesorPorCedula(lista, texto) != -1) {
+            aviso("Ya existe un profesor registrado con la cédula " + texto + ".");
+            continue;
+        }
+        salida = texto;
+        return true;
+    }
+}
+
+void mostrarDetalleProfesor(const Profesor& p) {
+    cout << "  Cédula       : " << p.cedula << "\n";
+    cout << "  Nombres      : " << p.nombres << "\n";
+    cout << "  Apellidos    : " << p.apellidos << "\n";
+    cout << "  Especialidad : " << p.especialidad << "\n";
+}
+
+void imprimirTablaProfesores(const vector<Profesor>& lista) {
+    const size_t wCedula = 10;
+    const size_t wNombre = 35;
+    const size_t wEspecialidad = 25;
+
+    cout << "\n  " << ajustar("Cédula", wCedula) << "  " << ajustar("Profesor", wNombre)
+         << "  " << ajustar("Especialidad", wEspecialidad) << "\n";
+    cout << "  " << string(wCedula, '-') << "  " << string(wNombre, '-') << "  "
+         << string(wEspecialidad, '-') << "\n";
+
+    for (const Profesor& p : lista) {
+        string nombreCompleto = p.nombres + " " + p.apellidos;
+        cout << "  " << ajustar(p.cedula, wCedula) << "  " << ajustar(nombreCompleto, wNombre)
+             << "  " << ajustar(p.especialidad, wEspecialidad) << "\n";
+    }
+    cout << "\n  Total: " << lista.size() << " profesor(es).\n";
+}
+
+bool registrarProfesor(vector<Profesor>& lista) {
+    cout << "\n--- Registrar profesor ---\n";
+    Profesor p;
+
+    if (!pedirCedulaProfesor(lista, "", false, p.cedula)) return false;
+    if (!pedirTextoValidado("Nombres", "", false, esNombreValido,
+                            "Los nombres solo admiten letras, espacios, guiones y apóstrofos (3-60 caracteres).",
+                            p.nombres)) {
+        return false;
+    }
+    if (!pedirTextoValidado("Apellidos", "", false, esNombreValido,
+                            "Los apellidos solo admiten letras, espacios, guiones y apóstrofos (3-60 caracteres).",
+                            p.apellidos)) {
+        return false;
+    }
+    if (!pedirTextoValidado("Especialidad", "", false, esCarreraValida,
+                            "La especialidad debe tener entre 3 y 40 caracteres válidos.",
+                            p.especialidad)) {
+        return false;
+    }
+
+    lista.push_back(p);
+    if (guardarProfesores(lista)) {
+        exito("Profesor " + p.nombres + " " + p.apellidos + " registrado correctamente.");
+    }
+    return true;
+}
+
+bool buscarProfesor(const vector<Profesor>& lista) {
+    cout << "\n--- Buscar profesor ---\n";
+    string cedula;
+    if (!pedirCedulaSimple(cedula)) return false;
+
+    int indice = buscarProfesorPorCedula(lista, cedula);
+    if (indice == -1) {
+        aviso("No existe un profesor con la cédula " + cedula + ".");
+        return true;
+    }
+    cout << "\n";
+    mostrarDetalleProfesor(lista[indice]);
+    return true;
+}
+
+bool actualizarProfesor(vector<Profesor>& lista) {
+    cout << "\n--- Actualizar profesor ---\n";
+    string cedula;
+    if (!pedirCedulaSimple(cedula)) return false;
+
+    int indice = buscarProfesorPorCedula(lista, cedula);
+    if (indice == -1) {
+        aviso("No existe un profesor con la cédula " + cedula + ".");
+        return true;
+    }
+
+    Profesor& actual = lista[indice];
+    cout << "\n  Datos actuales:\n";
+    mostrarDetalleProfesor(actual);
+    cout << "\n  Deje un campo vacío para conservar el valor actual.\n";
+
+    Profesor nuevo = actual;
+    if (!pedirCedulaProfesor(lista, actual.cedula, true, nuevo.cedula)) return false;
+    if (!pedirTextoValidado("Nombres", actual.nombres, true, esNombreValido,
+                            "Los nombres solo admiten letras, espacios, guiones y apóstrofos (3-60 caracteres).",
+                            nuevo.nombres)) {
+        return false;
+    }
+    if (!pedirTextoValidado("Apellidos", actual.apellidos, true, esNombreValido,
+                            "Los apellidos solo admiten letras, espacios, guiones y apóstrofos (3-60 caracteres).",
+                            nuevo.apellidos)) {
+        return false;
+    }
+    if (!pedirTextoValidado("Especialidad", actual.especialidad, true, esCarreraValida,
+                            "La especialidad debe tener entre 3 y 40 caracteres válidos.",
+                            nuevo.especialidad)) {
+        return false;
+    }
+
+    actual = nuevo;
+    if (guardarProfesores(lista)) {
+        exito("Datos del profesor actualizados.");
+    }
+    return true;
+}
+
+bool eliminarProfesor(vector<Profesor>& lista) {
+    cout << "\n--- Eliminar profesor ---\n";
+    string cedula;
+    if (!pedirCedulaSimple(cedula)) return false;
+
+    int indice = buscarProfesorPorCedula(lista, cedula);
+    if (indice == -1) {
+        aviso("No existe un profesor con la cédula " + cedula + ".");
+        return true;
+    }
+
+    cout << "\n  Registro a eliminar:\n";
+    mostrarDetalleProfesor(lista[indice]);
+    if (!confirmar("¿Eliminar este registro?")) {
+        cout << "  Operación cancelada.\n";
+        return true;
+    }
+
+    lista.erase(lista.begin() + indice);
+    if (guardarProfesores(lista)) {
+        exito("Profesor eliminado del registro.");
+    }
+    return true;
+}
+
+bool menuProfesores(vector<Profesor>& lista) {
+    while (true) {
+        cout << "\n--- Profesores ---\n";
+        cout << "  1. Registrar profesor\n";
+        cout << "  2. Listar profesores\n";
+        cout << "  3. Buscar por cédula\n";
+        cout << "  4. Actualizar profesor\n";
+        cout << "  5. Eliminar profesor\n";
+        cout << "  0. Volver al menú principal\n";
+
+        string texto;
+        if (!leerLinea("  Opción: ", texto)) return false;
+
+        int opcion = 0;
+        if (!parsearEntero(texto, opcion)) {
+            aviso("Escriba un número de opción válido.");
+            continue;
+        }
+
+        switch (opcion) {
+            case 1:
+                if (!registrarProfesor(lista)) return false;
+                break;
+            case 2:
+                cout << "\n--- Lista de profesores ---\n";
+                if (lista.empty()) {
+                    cout << "  No hay profesores registrados.\n";
+                } else {
+                    imprimirTablaProfesores(lista);
+                }
+                break;
+            case 3:
+                if (!buscarProfesor(lista)) return false;
+                break;
+            case 4:
+                if (!actualizarProfesor(lista)) return false;
+                break;
+            case 5:
+                if (!eliminarProfesor(lista)) return false;
+                break;
+            case 0:
+                return true;
+            default:
+                aviso("Opción no válida. Elija un número del menú.");
+                break;
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Menu principal
 // ---------------------------------------------------------------------------
 
@@ -967,9 +1260,10 @@ void mostrarMenu(const string& usuario) {
     cout << "  4. Actualizar estudiante\n";
     cout << "  5. Eliminar estudiante\n";
     cout << "  6. Estadísticas del registro\n";
-    cout << "  7. Guardar cambios\n";
-    cout << "  8. Cambiar contraseña\n";
-    cout << "  9. Cerrar sesión\n";
+    cout << "  7. Profesores\n";
+    cout << "  8. Guardar cambios\n";
+    cout << "  9. Cambiar contraseña\n";
+    cout << " 10. Cerrar sesión\n";
     cout << "  0. Salir\n";
 }
 
@@ -983,6 +1277,7 @@ int main() {
 
     vector<Usuario> usuarios = cargarUsuarios();
     vector<Estudiante> lista;
+    vector<Profesor> profesores;
     bool datosCargados = false;
     bool ejecutar = true;
 
@@ -992,6 +1287,7 @@ int main() {
 
         if (!datosCargados) {
             lista = cargarArchivo();
+            profesores = cargarProfesores();
             datosCargados = true;
         }
 
@@ -1031,12 +1327,17 @@ int main() {
                     mostrarEstadisticas(lista);
                     break;
                 case 7:
-                    if (guardarArchivo(lista)) exito("Datos guardados en " + ARCHIVO + ".");
+                    if (!menuProfesores(profesores)) ejecutar = false;
                     break;
                 case 8:
-                    if (!cambiarPassword(usuarios, usuarioActual)) ejecutar = false;
+                    if (guardarArchivo(lista) && guardarProfesores(profesores)) {
+                        exito("Cambios guardados en " + ARCHIVO + " y " + ARCHIVO_PROFESORES + ".");
+                    }
                     break;
                 case 9:
+                    if (!cambiarPassword(usuarios, usuarioActual)) ejecutar = false;
+                    break;
+                case 10:
                     cerrarSesion = true;
                     cout << "\n  Sesión cerrada.\n";
                     break;
@@ -1051,10 +1352,12 @@ int main() {
     }
 
     if (datosCargados) {
-        if (guardarArchivo(lista)) {
-            cout << "\n  Datos guardados en " << ARCHIVO << ". ¡Hasta pronto!\n";
+        bool guardado = guardarArchivo(lista) && guardarProfesores(profesores);
+        if (guardado) {
+            cout << "\n  Datos guardados en " << ARCHIVO << " y " << ARCHIVO_PROFESORES
+                 << ". ¡Hasta pronto!\n";
         } else {
-            cout << "\n  No se pudieron guardar los datos. ¡Hasta pronto!\n";
+            cout << "\n  No se pudieron guardar todos los datos. ¡Hasta pronto!\n";
         }
     } else {
         cout << "\n  ¡Hasta pronto!\n";
